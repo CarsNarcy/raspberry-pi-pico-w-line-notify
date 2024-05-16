@@ -1,0 +1,5 @@
+WIFI_SSID = your_ssid
+WIFI_PASSWORD = your_password
+LINE_TOKEN = your_token
+MES1 = インターフォン
+MES2 = 宅配BOX
