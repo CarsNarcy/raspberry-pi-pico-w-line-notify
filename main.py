@@ -31,10 +31,11 @@ def read_settings():
         print("Error reading settings file:", e)
         return None, None, None, None, None
 
-def send_LineNotufy(line_message):
+# LineNotify送信
+def send_LineNotify(line_message):
     buzzer_beep(1)  # 送信開始ブザー
     # Wi-Fi接続
-    wlan = network.WLAN(network.STA_IF)  # ステーションモード（クライアント）でWi-Fiインターフェースを作成
+    wlan = network.WLAN(network.STA_IF)  # ステーションモード（クライアント）
     wlan.active(True)  # Wi-Fiを有効にする
     if not wlan.isconnected():
         print('connecting to network...')
@@ -42,11 +43,11 @@ def send_LineNotufy(line_message):
         while not wlan.isconnected():
             pass
         print('connected to Wi-Fi')
-    req = urequests.post('https://notify-api.line.me/api/notify', headers=line_header, data=line_message)
+    req = urequests.post('https://notify-api.line.me/api/notify', headers=line_header, data=line_message.encode('utf-8'))
     req.close()
     # NTPサーバーから時刻を取得して同期
     sync_time()
-    buzzer_beep(3)  # 送信完了ブザー
+    buzzer_beep(3)   # 送信完了ブザー
     led_warning(10)  # 送信完了LED
 
 ## NTPサーバーから時刻を取得
@@ -55,7 +56,7 @@ def sync_time():
         # NTPサーバーから時刻を取得
         ntptime.host = NTP_SERVER
         ntptime.settime()
-        # 取得した時刻をUTCからJST（日本標準時）に変換
+        # 取得した時刻をUTCからJSTに変換
         utc_time = localtime()
         jst_time = mktime(utc_time) + 9 * 3600  # 9時間（JSTとUTCの時差）を加算
         local_time = localtime(jst_time)
@@ -76,16 +77,16 @@ def buzzer_beep(qty):
         sleep(0.1)
         buzzer_pin.off()
 
-# オンボードLEDを点滅させる
+# LEDを点滅させる
 def led_warning(qty):
     for i in range(qty):
         if i > 0:
             sleep(0.1)
         onboard_led.on()
-        led.on()
+        ext_led.on()
         sleep(0.1)
         onboard_led.off()
-        led.off()
+        ext_led.off()
 
 # NTPサーバー
 NTP_SERVER = "ntp.nict.jp"
@@ -94,8 +95,8 @@ NTP_SERVER = "ntp.nict.jp"
 bootsel_sw = rp2.bootsel_button
 
 # センサー
-pin1 = Pin(15, Pin.IN, Pin.PULL_UP)
-pin2 = Pin(13, Pin.IN, Pin.PULL_UP)
+pin1 = Pin(15, Pin.IN, Pin.PULL_UP)#インターフォン
+pin2 = Pin(13, Pin.IN, Pin.PULL_UP)#宅配BOX
 
 # ONの状態はどっち？
 PIN1_ON = 0
@@ -110,25 +111,27 @@ buzzer_pin = Pin(14, Pin.OUT)
 
 # LED
 onboard_led = Pin("LED", Pin.OUT)
-led = Pin(12, Pin.OUT)
+ext_led = Pin(12, Pin.OUT)
 
 # 設定をファイルから読み込む
 WIFI_SSID, WIFI_PASSWORD, LINE_TOKEN, MES1, MES2 = read_settings()
 
-# LAN接続
-wlan = network.WLAN(network.STA_IF)
-wlan.active(True)
-wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+# Line Tokenをセット
 line_header = {
     'Content-Type': 'application/x-www-form-urlencoded',
     'Authorization': 'Bearer ' + LINE_TOKEN
 }
 
+# LAN接続
+wlan = network.WLAN(network.STA_IF)
+wlan.active(True)
+wlan.connect(WIFI_SSID, WIFI_PASSWORD)
+
 # NTPサーバーから時刻を取得して同期
 sync_time()
 
 while True:
-    # オンボードLEDを点灯
+    # オンボードLEDを点滅
     led_warning(1)
 
     if not wlan.isconnected():
@@ -146,7 +149,7 @@ while True:
 
     while retry_count < retry_limit:
         try:
-            time_now = time()  # 現在時刻を取得
+            time_now = time()  # 現在時刻
             jst_time_now = time_now + 9 * 3600  # JSTに変換
             year, month, day, hour, minute, second, *_ = localtime(jst_time_now)
             now_date = "{:02d}/{:02d}/{:02d}".format(year, month, day)
@@ -160,9 +163,9 @@ while True:
             else:
                 print("Retry limit exceeded. Exiting.")
                 led_warning(10)
-                break  # ループを抜ける
+                break  
         else:
-            break  # 成功したらループを抜ける
+            break  
 
     # 次回のLINE通知の許可時間（この時間までは送信しない）
     if 'nextLineTime1' not in globals():
@@ -173,30 +176,36 @@ while True:
     # この時点のピンの状態で動作させる
     PIN1_NOW = pin1()
     PIN2_NOW = pin2()
-
+    
+    print(PIN1_NOW)
+    print(PIN2_NOW)
+    
     # ブートセルボタンが押された
     if bootsel_sw() == 1:
-        send_LineNotufy("message=" + "test")
+        send_LineNotify("message=" + "test")
+        # ボタンを離すまで待機
         while bootsel_sw() == 1:
             led_warning(3)
             buzzer_beep(1)
             sleep(5)
 
-    # PIN1動作
+    # PIN1動作(インターフォン）
     if PIN1_STATUS != PIN1_ON and PIN1_NOW == PIN1_ON:
         if time_now > nextLineTime1:
-            send_LineNotufy("message=" + MES1)
+            send_LineNotify("message=" + MES1)
+            nextLineTime1 = time_now + 60
         else:
-            year, month, day, hour, minute, second, *_ = localtime(nextLineTime1 + 9 * 3600)
+            year, month, day, hour, minute, second, *_ = localtime(nextLineTime1)
             next_time = "{:02d}:{:02d}:{:02d}".format(hour, minute, second)
             print("Not yet time for next notify. After:", next_time)
 
-    # PIN2動作
-    if PIN2_STATUS != PIN2_ON and PIN2_NOW == PIN2_ON:
+    # PIN2動作(宅配BOX)
+    if PIN2_STATUS != PIN2_ON and PIN2_NOW == PIN2_ON:     
         if time_now > nextLineTime2:
-            send_LineNotufy("message=" + MES2)
+            send_LineNotify("message=" + MES2)
+            nextLineTime2 = time_now + 60
         else:
-            year, month, day, hour, minute, second, *_ = localtime(nextLineTime2 + 9 * 3600)
+            year, month, day, hour, minute, second, *_ = localtime(nextLineTime2)
             next_time = "{:02d}:{:02d}:{:02d}".format(hour, minute, second)
             print("Not yet time for next notify. After:", next_time)
 
@@ -208,3 +217,4 @@ while True:
     print_str = now_date + " " + now_time
     print(print_str)
     sleep(1.0)  # ここが長いとブートセルボタンチョン押しが検知できない
+ 
